@@ -18,27 +18,53 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Unzip files
+      - name: Extract Zip File
         run: |
-          unzip -o *.zip
-          # Agar files kisi folder ke andar nikli hain toh unhe root me le aao
-          if [ ! -f "gradlew" ]; then
-            SUBDIR=$(find . -maxdepth 2 -name "gradlew" -exec dirname {} \; | head -n 1)
-            if [ -n "$SUBDIR" ] && [ "$SUBDIR" != "." ]; then
-              echo "Moving files from $SUBDIR to root..."
-              cp -r $SUBDIR/* .
-            fi
+          echo "=== Finding and extracting zip file ==="
+          ZIP_FILE=$(find . -maxdepth 2 -name "*.zip" | head -n 1)
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No zip file found in the repository!"
+            exit 1
           fi
-          chmod +x gradlew || true
+          echo "Extracting: $ZIP_FILE"
+          unzip -q -o "$ZIP_FILE" -d extracted_project
+          ls -la extracted_project
 
-      - name: Build with Gradle
+      - name: Locate and Build Project
         run: |
-          ./gradlew build --stacktrace
+          echo "=== Searching for build files ==="
+          GRADLEW_PATH=$(find extracted_project -name "gradlew" | head -n 1)
 
-      - name: Find and Save Jar File
+          if [ -n "$GRADLEW_PATH" ]; then
+            PROJECT_DIR=$(dirname "$GRADLEW_PATH")
+            echo "Found Gradle project in: $PROJECT_DIR"
+            cd "$PROJECT_DIR"
+            chmod +x gradlew
+            echo "Running Gradle build..."
+            ./gradlew build --no-daemon
+          elif [ -n "$(find extracted_project -name "pom.xml" | head -n 1)" ]; then
+            POM_PATH=$(find extracted_project -name "pom.xml" | head -n 1)
+            PROJECT_DIR=$(dirname "$POM_PATH")
+            echo "Found Maven project in: $PROJECT_DIR"
+            cd "$PROJECT_DIR"
+            mvn clean package -DskipTests
+          else
+            echo "Direct source packaging..."
+            cd extracted_project
+            mkdir -p build/libs
+            jar -cvf build/libs/mod.jar *
+          fi
+
+      - name: Check Generated Jars
+        run: |
+          echo "=== Generated Jar files ==="
+          find . -name "*.jar" ! -path "*/.gradle/*" ! -path "*/gradle/*"
+
+      - name: Save Jar File
         uses: actions/upload-artifact@v4
         with:
           name: Built-Mod-Jar
           path: |
-            build/libs/*.jar
             **/build/libs/*.jar
+            **/target/*.jar
+          if-no-files-found: error
