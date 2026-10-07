@@ -1,9 +1,12 @@
-name: Convert Zip to Jar
+name: Build Mod Jar
 
 on:
   push:
     branches: [ "main", "master" ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -12,59 +15,39 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v5
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
-      - name: Extract Zip File
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Unzip source files
         run: |
-          echo "=== Finding and extracting zip file ==="
-          ZIP_FILE=$(find . -maxdepth 2 -name "*.zip" | head -n 1)
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: No zip file found in the repository!"
-            exit 1
-          fi
-          echo "Extracting: $ZIP_FILE"
-          unzip -q -o "$ZIP_FILE" -d extracted_project
-          ls -la extracted_project
+          unzip -o dranant-v5.0.0-src.zip
 
-      - name: Locate and Build Project
+      - name: Build with Gradle
         run: |
-          echo "=== Searching for build files ==="
-          GRADLEW_PATH=$(find extracted_project -name "gradlew" | head -n 1)
+          gradle build --no-daemon
 
-          if [ -n "$GRADLEW_PATH" ]; then
-            PROJECT_DIR=$(dirname "$GRADLEW_PATH")
-            echo "Found Gradle project in: $PROJECT_DIR"
-            cd "$PROJECT_DIR"
-            chmod +x gradlew
-            echo "Running Gradle build..."
-            ./gradlew build --no-daemon
-          elif [ -n "$(find extracted_project -name "pom.xml" | head -n 1)" ]; then
-            POM_PATH=$(find extracted_project -name "pom.xml" | head -n 1)
-            PROJECT_DIR=$(dirname "$POM_PATH")
-            echo "Found Maven project in: $PROJECT_DIR"
-            cd "$PROJECT_DIR"
-            mvn clean package -DskipTests
-          else
-            echo "Direct source packaging..."
-            cd extracted_project
-            mkdir -p build/libs
-            jar -cvf build/libs/mod.jar *
-          fi
-
-      - name: Check Generated Jars
-        run: |
-          echo "=== Generated Jar files ==="
-          find . -name "*.jar" ! -path "*/.gradle/*" ! -path "*/gradle/*"
-
-      - name: Save Jar File
+      - name: Upload Mod Jar Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Built-Mod-Jar
-          path: |
-            **/build/libs/*.jar
-            **/target/*.jar
+          name: dranant-5.0.0-jar
+          path: build/libs/*.jar
           if-no-files-found: error
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: v5.1.0
+          name: "Doctor Anant Mod v5.1"
+          body: "Official release jar for Doctor Anant Mod v5.1 (Minecraft 1.21.1 / NeoForge)"
+          files: build/libs/*.jar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
